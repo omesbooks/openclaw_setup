@@ -1,0 +1,11 @@
+# macOS / Windows / editors
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.idea/
+
+# Local artifacts
+*.log
+*.bak
+.env
