@@ -198,25 +198,73 @@ if ! command -v caddy >/dev/null 2>&1; then
 fi
 ok "$(caddy version | head -1)"
 
-# ─── Step 5: gateway user ──────────────────────────────────────────
+# ─── Step 5: gateway user + sudoers entry ──────────────────────────
 step "[5/9] Setting up user $GATEWAY_USER"
 if ! id "$GATEWAY_USER" >/dev/null 2>&1; then
   adduser --gecos "" --disabled-password "$GATEWAY_USER" >/dev/null
   usermod -aG sudo "$GATEWAY_USER"
 fi
 echo "$GATEWAY_USER:$SSH_PASSWORD" | chpasswd
-loginctl enable-linger "$GATEWAY_USER" 2>/dev/null || true
-ok "user ready, linger enabled"
+# Allow the gateway user to restart the system openclaw-gateway service without
+# password (so setup-provider can apply provider changes).
+cat > /etc/sudoers.d/openclaw-gateway <<EOF
+${GATEWAY_USER} ALL=(root) NOPASSWD: /bin/systemctl restart openclaw-gateway, /bin/systemctl status openclaw-gateway, /bin/systemctl is-active openclaw-gateway
+EOF
+chmod 440 /etc/sudoers.d/openclaw-gateway
+ok "user ready, sudoers configured"
 
-# ─── Step 6: openclaw onboard ──────────────────────────────────────
+# ─── Step 6: openclaw onboard (writes ~/.openclaw/openclaw.json) ───
 step "[6/9] Onboarding OpenClaw"
-sudo -u "$GATEWAY_USER" -i bash <<EOF >/dev/null 2>&1 || true
-  openclaw onboard --install-daemon --non-interactive --accept-risk \
+# We deliberately skip --install-daemon: openclaw's systemd-user installer
+# is fragile inside LXC containers (DBUS/XDG_RUNTIME_DIR aren't always set up).
+# We install a plain SYSTEM systemd unit ourselves below, which is bulletproof.
+sudo -u "$GATEWAY_USER" -i bash <<EOF >/tmp/install-onboard.log 2>&1
+  openclaw onboard --non-interactive --accept-risk \
     --flow quickstart --auth-choice skip \
     --gateway-bind loopback --gateway-port 18789 \
-    --gateway-auth token --gateway-token "$GATEWAY_TOKEN"
+    --gateway-auth token --gateway-token "$GATEWAY_TOKEN" --skip-health
 EOF
 ok "onboarded"
+
+# Install a system-level systemd unit that runs the gateway as $GATEWAY_USER.
+# This bypasses the user-systemd quirks in unprivileged Proxmox LXC.
+cat > /etc/systemd/system/openclaw-gateway.service <<EOF
+[Unit]
+Description=OpenClaw Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=${GATEWAY_USER}
+Group=${GATEWAY_USER}
+WorkingDirectory=/home/${GATEWAY_USER}
+Environment=HOME=/home/${GATEWAY_USER}
+Environment=OPENCLAW_GATEWAY_PORT=18789
+ExecStart=/usr/bin/openclaw gateway run
+Restart=always
+RestartSec=5
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable openclaw-gateway >/dev/null 2>&1 || true
+systemctl restart openclaw-gateway
+
+# Wait for the gateway to be reachable. First-run installs bundled runtime
+# deps (acpx, browser, bonjour, …) which can take 60-90s.
+info "Waiting for gateway port 18789 (up to 180s, first run installs deps)..."
+GATEWAY_READY=false
+for i in {1..90}; do
+  if (echo > /dev/tcp/127.0.0.1/18789) >/dev/null 2>&1; then
+    GATEWAY_READY=true
+    break
+  fi
+  sleep 2
+done
+$GATEWAY_READY && ok "gateway listening on :18789" || warn "gateway not reachable yet — continuing anyway"
 
 # ─── Step 7: patch config ──────────────────────────────────────────
 step "[7/9] Patching gateway config (autoApproveCidrs / trustedProxies / allowedOrigins)"
@@ -230,7 +278,12 @@ g.setdefault("controlUi", {})["allowedOrigins"] = [f"https://{domain}"]
 g.setdefault("nodes", {}).setdefault("pairing", {})["autoApproveCidrs"] = ["0.0.0.0/0", "::/0"]
 json.dump(c, open(path, "w"), indent=2)
 PYEOF
-sudo -u "$GATEWAY_USER" -i openclaw gateway restart >/dev/null 2>&1 || true
+systemctl restart openclaw-gateway
+# Wait again — restart triggers config reload but no extra dep install this time.
+for i in {1..30}; do
+  (echo > /dev/tcp/127.0.0.1/18789) >/dev/null 2>&1 && break
+  sleep 1
+done
 ok "config patched + gateway restarted"
 
 # ─── Step 8: Caddy config ──────────────────────────────────────────
@@ -391,7 +444,9 @@ PY
 ok "Template settings restored"
 
 info "Restarting gateway..."
-openclaw gateway restart >/dev/null 2>&1 || warn "gateway restart failed; daemon may pick up changes automatically"
+sudo systemctl restart openclaw-gateway 2>/dev/null \
+  || openclaw gateway restart >/dev/null 2>&1 \
+  || warn "gateway restart failed; service may pick up changes automatically"
 
 echo
 ok "Setup complete!"
@@ -431,14 +486,18 @@ print(json.dumps({
 PY
 )
 
+  set +e
   sudo -u "$GATEWAY_USER" -i bash <<EOF >/tmp/install-provider.log 2>&1
 openclaw onboard --non-interactive --accept-risk --flow quickstart \
   --auth-choice "$AUTH_CHOICE" "$KEY_FLAG" '$API_KEY' \
   --gateway-port 18789 --gateway-bind loopback \
-  --gateway-auth token --gateway-token "$GATEWAY_TOKEN"
+  --gateway-auth token --gateway-token "$GATEWAY_TOKEN" --skip-health
 EOF
-  if [[ $? -ne 0 ]]; then
-    warn "provider config returned an error — see /tmp/install-provider.log"
+  PROVIDER_RC=$?
+  set -e
+  if [[ $PROVIDER_RC -ne 0 ]]; then
+    warn "provider config returned exit $PROVIDER_RC — see /tmp/install-provider.log"
+    tail -10 /tmp/install-provider.log >&2 || true
   fi
 
   # restore protected fields
@@ -457,7 +516,11 @@ if backup.get("nodes_pairing") is not None:
 json.dump(c, open(path, "w"), indent=2)
 PY
 
-  sudo -u "$GATEWAY_USER" -i openclaw gateway restart >/dev/null 2>&1 || true
+  systemctl restart openclaw-gateway
+  for i in {1..30}; do
+    (echo > /dev/tcp/127.0.0.1/18789) >/dev/null 2>&1 && break
+    sleep 1
+  done
   ok "AI provider $PROVIDER configured"
 fi
 

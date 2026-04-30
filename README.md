@@ -1,3 +1,4 @@
+<!-- v1.5.1: switched customer gateway to system-level systemd unit (more reliable in unprivileged Proxmox LXC) -->
 # OpenClaw 1-Click Self-Host Installer
 
 A single-script installer that turns a fresh Ubuntu 22.04 container into a customer-ready, HTTPS-enabled OpenClaw deployment with **zero browser friction**: no auth dialog, no device pairing, no manual config — the customer clicks the URL and lands on the chat UI.
