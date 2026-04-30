@@ -37,7 +37,9 @@ async function runInstallScript({ host, user, domain, provider, apiKey, log }) {
     keepaliveInterval: 10000,
   });
 
-  const cmd = [
+  // Bootstrap curl if the customer container is too minimal to have it.
+  // (Common on slim Ubuntu LXC templates.) Runs as root via the SSH session.
+  const fetchCmd = [
     'curl -fsSL',
     shellEscapeSingleQuoted(INSTALL_SCRIPT_URL),
     '| bash -s --',
@@ -46,6 +48,15 @@ async function runInstallScript({ host, user, domain, provider, apiKey, log }) {
     '--api-key', shellEscapeSingleQuoted(apiKey),
     '--yes',
   ].join(' ');
+
+  const cmd = `set -e
+if ! command -v curl >/dev/null 2>&1; then
+  echo "[installer] curl missing, installing..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq curl ca-certificates
+fi
+${fetchCmd}`;
 
   let stdout = '';
   let stderr = '';
