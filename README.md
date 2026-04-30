@@ -51,17 +51,19 @@ Operator runs one command; customer just clicks the URL — no SSH ever.
 
 #### Mode 3 — customer self-serve via web form (operator does 1 admin step per customer)
 
-```bash
-# Operator (after creating LXC + DNS + Mikrotik forward):
-ssh root@control-lxc "oc-register customer-01.example.com 10.0.0.12"
-# → outputs https://signup.metaelearning.online/?token=…
-# Operator emails this URL to the customer.
-
-# Customer (in their browser):
-#   open URL → pick provider → paste API key → wait 3 min → click "Open OpenClaw"
+```text
+1. Proxmox: clone your LXC template
+2. DNS: subdomain → public IP
+3. Mikrotik: forward 22 + 80 + 443 → customer LXC
+4. SSH key: add control's public key to /root/.ssh/authorized_keys
+            (skip if baked into your LXC template)
+5. Admin dashboard → "+ Add container" → copy signup URL
+6. Email signup URL to customer
 ```
 
-This is the Hostinger-style flow. See [`signup-backend/README.md`](./signup-backend/README.md) for setup.
+The customer clicks the link, picks a provider, pastes their API key, and watches a **live progress checklist** (~3 minutes) before being dropped into the chat UI. No SSH, no copy-paste, no manual pairing.
+
+This is the Hostinger-style flow. See [`signup-backend/README.md`](./signup-backend/README.md) for the full step-by-step.
 
 ## What you get
 

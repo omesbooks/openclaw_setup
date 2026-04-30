@@ -55,29 +55,88 @@ The installer:
 6. configures Caddy + Let's Encrypt for the signup domain
 7. **prints the SSH public key** — copy it into each customer container's `/root/.ssh/authorized_keys` (or bake it into your LXC template)
 
-## Add a customer
+## Adding a new customer container — full workflow
 
-Two ways: web dashboard or CLI.
+Each customer gets their own LXC. Steps the **operator** takes (5 minutes):
 
-### A. Admin dashboard (recommended)
+```
+┌─ 1. Proxmox: clone your LXC template ─────────────────────────┐
+│    → Customer container with a fresh public IP                  │
+└──────────────────────────────────────────────────────────────────┘
+┌─ 2. DNS: add an A record ────────────────────────────────────────┐
+│    customer-N.openclaw.example.com → <public IP>                 │
+└──────────────────────────────────────────────────────────────────┘
+┌─ 3. Mikrotik (or your firewall): forward 22 + 80 + 443 ─────────┐
+│    Public 22/80/443 → customer LXC                               │
+└──────────────────────────────────────────────────────────────────┘
+┌─ 4. SSH key on customer LXC ─────────────────────────────────────┐
+│    Add the control container's public key to                      │
+│    /root/.ssh/authorized_keys (see below).                       │
+│    💡 Bake this into your LXC template once and skip every time. │
+└──────────────────────────────────────────────────────────────────┘
+┌─ 5. Admin dashboard → "+ Add container" ─────────────────────────┐
+│    Domain + IP + SSH user → Create token → copy signup URL       │
+└──────────────────────────────────────────────────────────────────┘
+┌─ 6. Email the signup URL to the customer ────────────────────────┐
+│    https://signup.metaelearning.online/?token=...                │
+└──────────────────────────────────────────────────────────────────┘
+```
 
-Open `https://<your-signup-domain>/admin` (Basic auth — user + password printed at the end of `install-control.sh`).
+The customer then clicks the URL, picks an AI provider, pastes their API key, watches the **live progress checklist**, and clicks "Open OpenClaw" when ready.
 
-Click **"+ Add container"**, fill in domain + IP, get the signup URL to email the customer. The dashboard shows status of every container at a glance — pending / provisioning / ready / failed — with actions for revoke, reset, copy URL, and detail.
+### Step 4 — installing the control public key on a customer LXC
 
-### B. CLI (on the control container)
+Run **once** on each fresh customer LXC (or bake into your template):
 
 ```bash
-oc-register customer-foo.openclaw.example.com 10.0.0.12
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
+cat >> /root/.ssh/authorized_keys <<'KEY'
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA…openclaw-signup-control
+KEY
+chmod 600 /root/.ssh/authorized_keys
 ```
 
-Either way, the customer gets a URL like:
+Replace the placeholder line with the **actual public key** printed by `install-control.sh` at the end of installation. The control container holds the matching private key — no password is ever stored on either side.
 
-```
-https://signup.metaelearning.online/?token=<random>
+### Step 5 — admin dashboard vs CLI
+
+Both produce the same signup URL.
+
+**Web (recommended):** open `https://<signup-domain>/admin`, click **"+ Add container"**, fill in:
+- Domain: `customer-N.openclaw.example.com`
+- Container IP: customer's public (or LAN) IP
+- SSH user: `root` (default)
+
+**CLI on the control container:**
+```bash
+oc-register customer-N.openclaw.example.com <ip>
 ```
 
-They open it, pick AI provider, paste API key, wait ~3 minutes, click "Open OpenClaw".
+Either way the dashboard shows the new row immediately. Use the **Copy signup URL** action to grab the link.
+
+## What the customer sees
+
+1. Click the signup URL.
+2. Form: pick provider (Anthropic / OpenAI / Gemini / OpenRouter / DeepSeek), paste API key, optionally email.
+3. Live progress checklist (~14 steps, ticks one by one):
+   - Connecting to your workspace
+   - Installing system packages
+   - Installing Node.js runtime
+   - Installing OpenClaw
+   - Installing web server (Caddy)
+   - Setting up service user
+   - Configuring OpenClaw
+   - Starting OpenClaw service (≈60s)
+   - Applying security settings
+   - Setting up HTTPS reverse proxy
+   - Installing helper scripts
+   - Enabling auto-pairing
+   - Applying your AI provider
+   - Verifying TLS certificate
+4. Click **Open OpenClaw →** when it turns into a button.
+5. Browser pairs automatically within ~3 seconds (auto-pair watchdog), opens the chat UI.
+
+If the customer wants to change provider or rotate their API key later, they reuse the same signup URL and click **"Need to change provider or API key? →"** on the success screen.
 
 ## Admin commands
 
