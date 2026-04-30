@@ -4,13 +4,17 @@
 # Usage (interactive — prompts for inputs):
 #   sudo bash install-openclaw.sh
 #
-# Usage (non-interactive):
-#   sudo bash install-openclaw.sh --domain customer-01.example.com --user testuser --yes
+# Usage (non-interactive, infrastructure only — customer adds API key later):
+#   sudo bash install-openclaw.sh --domain customer-01.example.com --yes
 #
-# Usage (pipe through SSH from your laptop):
-#   ssh root@new-host 'bash -s' < install-openclaw.sh
+# Usage (full 1-click — installs everything INCLUDING the customer's AI provider):
+#   sudo bash install-openclaw.sh \
+#     --domain customer-01.example.com \
+#     --provider anthropic \
+#     --api-key sk-ant-xxxxx \
+#     --yes
 #
-# Result: HTTPS-enabled OpenClaw with auto-pair, ready for your customer.
+# Result: HTTPS-enabled OpenClaw — customer just clicks the URL, no SSH needed.
 
 set -euo pipefail
 
@@ -18,6 +22,8 @@ set -euo pipefail
 DOMAIN=""
 GATEWAY_USER=""
 SSH_PASSWORD=""
+PROVIDER=""
+API_KEY=""
 ASSUME_YES=false
 
 # ─── Colors ────────────────────────────────────────────────────────
@@ -40,11 +46,16 @@ usage() {
 Usage: sudo bash install-openclaw.sh [options]
 
 Options:
-  --domain <name>     Domain for this instance (e.g. customer-01.example.com)
-  --user <name>       Gateway/SSH user (default: testuser)
-  --password <pw>     SSH password (default: random)
-  --yes               Skip all confirm prompts
-  -h, --help          Show this help
+  --domain <name>      Domain for this instance (e.g. customer-01.example.com)
+  --user <name>        Gateway/SSH user (default: testuser)
+  --password <pw>      SSH password (default: random)
+  --provider <name>    AI provider: anthropic | openai | gemini | openrouter | deepseek
+  --api-key <key>      AI provider API key (used with --provider)
+  --yes                Skip all confirm prompts
+  -h, --help           Show this help
+
+If --provider and --api-key are both given, the AI provider is configured
+during install — the customer just clicks the URL, no SSH needed.
 
 DNS A record for <domain> must already point to this host.
 Ports 22, 80, 443 must be reachable from the internet.
@@ -57,11 +68,24 @@ while [[ $# -gt 0 ]]; do
     --domain)   DOMAIN="$2"; shift 2 ;;
     --user)     GATEWAY_USER="$2"; shift 2 ;;
     --password) SSH_PASSWORD="$2"; shift 2 ;;
+    --provider) PROVIDER="$2"; shift 2 ;;
+    --api-key)  API_KEY="$2"; shift 2 ;;
     --yes|-y)   ASSUME_YES=true; shift ;;
     -h|--help)  usage; exit 0 ;;
     *)          err "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
+
+# Validate provider/key combo
+if [[ -n "$PROVIDER" && -z "$API_KEY" ]] || [[ -z "$PROVIDER" && -n "$API_KEY" ]]; then
+  err "Both --provider and --api-key must be given together"
+  usage; exit 1
+fi
+case "${PROVIDER,,}" in
+  ""|anthropic|openai|gemini|openrouter|deepseek) ;;
+  *) err "Unknown --provider '$PROVIDER' (must be: anthropic | openai | gemini | openrouter | deepseek)"; exit 1 ;;
+esac
+PROVIDER="${PROVIDER,,}"
 
 # ─── Banner ────────────────────────────────────────────────────────
 cat <<'BANNER'
@@ -122,6 +146,7 @@ cat <<EOF
   SSH password  : $SSH_PASSWORD
   Gateway token : ${GATEWAY_TOKEN:0:16}…
   Host IP       : $HOST_IP
+  AI provider   : ${PROVIDER:-(skipped — customer will set via setup-provider)}
 EOF
 
 if ! $ASSUME_YES; then
@@ -383,6 +408,61 @@ SETUP_PROVIDER_EOF
 chmod 755 /usr/local/bin/setup-provider
 ok "/usr/local/bin/setup-provider installed"
 
+# ─── Optional Step 10: configure AI provider ───────────────────────
+if [[ -n "$PROVIDER" && -n "$API_KEY" ]]; then
+  step "[10] Configuring AI provider ($PROVIDER)"
+
+  case "$PROVIDER" in
+    anthropic)  AUTH_CHOICE="anthropic-api-key";  KEY_FLAG="--anthropic-api-key" ;;
+    openai)     AUTH_CHOICE="openai-api-key";     KEY_FLAG="--openai-api-key" ;;
+    gemini)     AUTH_CHOICE="gemini-api-key";     KEY_FLAG="--gemini-api-key" ;;
+    openrouter) AUTH_CHOICE="openrouter-api-key"; KEY_FLAG="--openrouter-api-key" ;;
+    deepseek)   AUTH_CHOICE="deepseek-api-key";   KEY_FLAG="--deepseek-api-key" ;;
+  esac
+
+  # snapshot protected fields before re-running onboard
+  PROTECTED_BACKUP=$(sudo -u "$GATEWAY_USER" python3 - "/home/$GATEWAY_USER/.openclaw/openclaw.json" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1]))
+g = c.get("gateway", {}) or {}
+print(json.dumps({
+  "trustedProxies": g.get("trustedProxies"),
+  "controlUi": g.get("controlUi"),
+  "nodes_pairing": (g.get("nodes", {}) or {}).get("pairing"),
+}))
+PY
+)
+
+  sudo -u "$GATEWAY_USER" -i bash <<EOF >/tmp/install-provider.log 2>&1
+openclaw onboard --non-interactive --accept-risk --flow quickstart \
+  --auth-choice "$AUTH_CHOICE" "$KEY_FLAG" '$API_KEY' \
+  --gateway-port 18789 --gateway-bind loopback \
+  --gateway-auth token --gateway-token "$GATEWAY_TOKEN"
+EOF
+  if [[ $? -ne 0 ]]; then
+    warn "provider config returned an error — see /tmp/install-provider.log"
+  fi
+
+  # restore protected fields
+  sudo -u "$GATEWAY_USER" python3 - "/home/$GATEWAY_USER/.openclaw/openclaw.json" "$PROTECTED_BACKUP" <<'PY'
+import json, sys
+path, backup_json = sys.argv[1], sys.argv[2]
+backup = json.loads(backup_json)
+c = json.load(open(path))
+g = c.setdefault("gateway", {})
+if backup.get("trustedProxies") is not None:
+    g["trustedProxies"] = backup["trustedProxies"]
+if backup.get("controlUi") is not None:
+    g["controlUi"] = backup["controlUi"]
+if backup.get("nodes_pairing") is not None:
+    g.setdefault("nodes", {})["pairing"] = backup["nodes_pairing"]
+json.dump(c, open(path, "w"), indent=2)
+PY
+
+  sudo -u "$GATEWAY_USER" -i openclaw gateway restart >/dev/null 2>&1 || true
+  ok "AI provider $PROVIDER configured"
+fi
+
 # ─── Wait for cert ─────────────────────────────────────────────────
 step "Waiting for Let's Encrypt cert (up to 60s)..."
 CERT_OK=false
@@ -397,23 +477,26 @@ done
 $CERT_OK && ok "TLS cert ready" || warn "Cert not ready in 60s — check 'journalctl -u caddy' for ACME issues"
 
 # ─── Summary ───────────────────────────────────────────────────────
-cat <<EOF
-
-  ╭────────────────────────────────────────────────────────────────╮
-  │   ${GRN}🎉 OpenClaw is ready!${RST}                                       │
-  ╰────────────────────────────────────────────────────────────────╯
-
-  ${BLD}Customer URL${RST}
-    ${CYN}https://${DOMAIN}/?token=${GATEWAY_TOKEN}${RST}
-
-  ${BLD}SSH access${RST}
-    ssh ${GATEWAY_USER}@${DOMAIN}
-    password: ${SSH_PASSWORD}
-
-  ${BLD}First-run step (customer)${RST}
-    SSH in and run: ${DIM}setup-provider${RST}
-    Choose AI provider, paste API key, done.
-
-  ${BLD}Save these credentials NOW — they aren't stored anywhere else.${RST}
-
-EOF
+echo
+echo "  ╭────────────────────────────────────────────────────────────────╮"
+echo "  │   ${GRN}🎉 OpenClaw is ready!${RST}                                       │"
+echo "  ╰────────────────────────────────────────────────────────────────╯"
+echo
+echo "  ${BLD}Customer URL${RST}"
+echo "    ${CYN}https://${DOMAIN}/?token=${GATEWAY_TOKEN}${RST}"
+echo
+if [[ -n "$PROVIDER" ]]; then
+  echo "  ${BLD}AI provider${RST}      $PROVIDER (configured — chat works immediately)"
+  echo
+  echo "  ${BLD}Customer flow${RST}    Click the URL above. That's it."
+else
+  echo "  ${BLD}First-run step (customer)${RST}"
+  echo "    SSH in and run: ${DIM}setup-provider${RST}"
+  echo "    Choose AI provider, paste API key, done."
+fi
+echo
+echo "  ${BLD}SSH access${RST}       ssh ${GATEWAY_USER}@${DOMAIN}"
+echo "  ${BLD}SSH password${RST}     ${SSH_PASSWORD}"
+echo
+echo "  ${BLD}Save these credentials NOW — they aren't stored anywhere else.${RST}"
+echo

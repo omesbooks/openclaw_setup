@@ -27,16 +27,29 @@ Before running the installer, make sure:
 
 ## Usage
 
-### One-line install (recommended)
+### Full 1-click — customer just opens the URL (recommended)
+
+```bash
+ssh root@new-host "curl -fsSL https://raw.githubusercontent.com/omesbooks/openclaw_setup/main/install.sh \
+  | bash -s -- \
+      --domain customer-01.openclaw.example.com \
+      --provider anthropic \
+      --api-key sk-ant-xxxxx \
+      --yes"
+```
+
+The installer prints `Customer URL` at the end — that's all the customer needs. They click → chat works immediately, no SSH required.
+
+### Infrastructure only (customer adds their own key later)
 
 ```bash
 ssh root@new-host "curl -fsSL https://raw.githubusercontent.com/omesbooks/openclaw_setup/main/install.sh \
   | bash -s -- --domain customer-01.openclaw.example.com --yes"
 ```
 
-The installer prints `Customer URL`, `SSH access`, and `SSH password` at the end — save them.
+Customer SSHes in once and runs `setup-provider` to add their key.
 
-### Interactive (prompts for inputs)
+### Interactive (prompts for everything)
 
 ```bash
 ssh root@new-host
@@ -46,8 +59,8 @@ curl -fsSL https://raw.githubusercontent.com/omesbooks/openclaw_setup/main/insta
 ### Pin a version (recommended for production)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/omesbooks/openclaw_setup/v1.0.0/install.sh \
-  | bash -s -- --domain xxx --yes
+curl -fsSL https://raw.githubusercontent.com/omesbooks/openclaw_setup/v1.1.0/install.sh \
+  | bash -s -- --domain xxx --provider anthropic --api-key sk-ant-... --yes
 ```
 
 ## Options
@@ -57,8 +70,12 @@ curl -fsSL https://raw.githubusercontent.com/omesbooks/openclaw_setup/v1.0.0/ins
 | `--domain <name>` | _(prompted)_ | Domain for this instance |
 | `--user <name>` | `testuser` | Linux + Gateway user |
 | `--password <pw>` | _(random)_ | SSH password |
+| `--provider <name>` | _(skipped)_ | AI provider: `anthropic` \| `openai` \| `gemini` \| `openrouter` \| `deepseek` |
+| `--api-key <key>` | _(skipped)_ | API key for `--provider` |
 | `--yes`, `-y` | _off_ | Skip confirm prompts |
 | `-h`, `--help` | | Show help |
+
+`--provider` and `--api-key` must be given together. If both are given, the AI provider is configured during install and chat works immediately on the customer's first visit.
 
 ## What the installer does
 
