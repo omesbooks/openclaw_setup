@@ -1,6 +1,6 @@
 {
   "name": "openclaw-signup-backend",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Signup form + provisioning API for OpenClaw self-host instances",
   "main": "server.js",
   "scripts": {

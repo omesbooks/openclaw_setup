@@ -38,11 +38,58 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(express.json({ limit: '32kb' }));
 
-// ─── Public static — block admin assets from anonymous access ───────
-app.use((req, _res, next) => {
-  if (req.path.startsWith('/admin.')) return next('route'); // skip static, drop through to 404
+// ─── Admin auth helpers (used by gated routes below; must be defined
+//     before app.use(express.static) so /admin.* gated routes match first) ──
+function safeEqual(a, b) {
+  const aBuf = Buffer.from(a, 'utf8');
+  const bBuf = Buffer.from(b, 'utf8');
+  if (aBuf.length !== bBuf.length) return false;
+  return crypto.timingSafeEqual(aBuf, bBuf);
+}
+
+function requireAdmin(req, res, next) {
+  if (!ADMIN_ENABLED) {
+    return res.status(503).json({
+      error: 'Admin disabled. Set ADMIN_PASSWORD env to enable.',
+    });
+  }
+  const auth = req.headers.authorization || '';
+  const send401 = () => {
+    res.set('WWW-Authenticate', 'Basic realm="OpenClaw Admin"');
+    return res.status(401).end();
+  };
+  if (!auth.startsWith('Basic ')) return send401();
+
+  let user, pass;
+  try {
+    const decoded = Buffer.from(auth.slice(6), 'base64').toString('utf8');
+    const idx = decoded.indexOf(':');
+    if (idx < 0) return send401();
+    user = decoded.slice(0, idx);
+    pass = decoded.slice(idx + 1);
+  } catch {
+    return send401();
+  }
+
+  if (!safeEqual(user, ADMIN_USER) || !safeEqual(pass, ADMIN_PASSWORD)) {
+    return send401();
+  }
   next();
-});
+}
+
+// ─── Admin assets (gated, registered BEFORE express.static so static
+//     never serves them anonymously). ─────────────────────────────────
+app.get('/admin', requireAdmin, (_req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'))
+);
+app.get('/admin.js', requireAdmin, (_req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'admin.js'))
+);
+app.get('/admin.css', requireAdmin, (_req, res) =>
+  res.sendFile(path.join(__dirname, 'public', 'admin.css'))
+);
+
+// ─── Public static (everything else in /public) ─────────────────────
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
 // Customer form at "/" (public).
@@ -225,55 +272,7 @@ app.post('/api/provision', provisionLimiter, async (req, res) => {
   })();
 });
 
-// ─── Admin (Basic auth) ─────────────────────────────────────────────
-function safeEqual(a, b) {
-  const aBuf = Buffer.from(a, 'utf8');
-  const bBuf = Buffer.from(b, 'utf8');
-  if (aBuf.length !== bBuf.length) return false;
-  return crypto.timingSafeEqual(aBuf, bBuf);
-}
-
-function requireAdmin(req, res, next) {
-  if (!ADMIN_ENABLED) {
-    return res.status(503).json({
-      error: 'Admin disabled. Set ADMIN_PASSWORD env to enable.',
-    });
-  }
-  const auth = req.headers.authorization || '';
-  const send401 = () => {
-    res.set('WWW-Authenticate', 'Basic realm="OpenClaw Admin"');
-    return res.status(401).end();
-  };
-  if (!auth.startsWith('Basic ')) return send401();
-
-  let user, pass;
-  try {
-    const decoded = Buffer.from(auth.slice(6), 'base64').toString('utf8');
-    const idx = decoded.indexOf(':');
-    if (idx < 0) return send401();
-    user = decoded.slice(0, idx);
-    pass = decoded.slice(idx + 1);
-  } catch {
-    return send401();
-  }
-
-  if (!safeEqual(user, ADMIN_USER) || !safeEqual(pass, ADMIN_PASSWORD)) {
-    return send401();
-  }
-  next();
-}
-
-// Dashboard HTML + JS (gated).
-app.get('/admin', requireAdmin, (_req, res) =>
-  res.sendFile(path.join(__dirname, 'public', 'admin.html'))
-);
-app.get('/admin.js', requireAdmin, (_req, res) =>
-  res.sendFile(path.join(__dirname, 'public', 'admin.js'))
-);
-app.get('/admin.css', requireAdmin, (_req, res) =>
-  res.sendFile(path.join(__dirname, 'public', 'admin.css'))
-);
-
+// ─── Admin API (gated; HTML/JS/CSS gated above) ─────────────────────
 app.use('/api/admin', requireAdmin);
 
 // List tokens — sanitized, no api keys (we never store them anyway).
