@@ -306,6 +306,57 @@ caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1 || fatal "Caddyfile
 systemctl reload caddy
 ok "Caddy reloaded (Let's Encrypt cert in flight)"
 
+# ─── Auto-pair watchdog ────────────────────────────────────────────
+# OpenClaw 2026.4.27 restricts autoApproveCidrs to role=node connections,
+# so browsers (role=operator + isControlUi/isWebchat) always require manual
+# pairing approval. We work around this by running a small daemon as the
+# gateway user that polls `openclaw devices list` every few seconds and
+# approves any pending request automatically.
+cat > /usr/local/bin/openclaw-auto-pair <<'WATCHDOG_EOF'
+#!/usr/bin/env bash
+# Auto-approve any pending device pairing request.
+# Runs as the gateway user. Polls the openclaw CLI every 3 seconds.
+set +e
+export HOME="${HOME:-/home/$(id -un)}"
+
+while true; do
+  PENDING_IDS=$(openclaw devices list 2>/dev/null | awk '
+    /^Paired/   { in_pending = 0 }
+    in_pending && /^│ [a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/ { print $2 }
+    /^Pending/  { in_pending = 1 }
+  ')
+  for REQ_ID in $PENDING_IDS; do
+    [[ -n "$REQ_ID" ]] && openclaw devices approve "$REQ_ID" >/dev/null 2>&1 && \
+      echo "[auto-pair] approved $REQ_ID"
+  done
+  sleep 3
+done
+WATCHDOG_EOF
+chmod 755 /usr/local/bin/openclaw-auto-pair
+
+cat > /etc/systemd/system/openclaw-auto-pair.service <<EOF
+[Unit]
+Description=OpenClaw auto-approve pending device pairings
+After=openclaw-gateway.service
+Requires=openclaw-gateway.service
+
+[Service]
+Type=simple
+User=${GATEWAY_USER}
+Group=${GATEWAY_USER}
+Environment=HOME=/home/${GATEWAY_USER}
+ExecStart=/usr/local/bin/openclaw-auto-pair
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable openclaw-auto-pair >/dev/null 2>&1 || true
+systemctl restart openclaw-auto-pair
+ok "auto-pair watchdog enabled"
+
 # ─── Step 9: setup-provider script ─────────────────────────────────
 step "[9/9] Installing setup-provider helper for the customer"
 cat > /usr/local/bin/setup-provider <<'SETUP_PROVIDER_EOF'
