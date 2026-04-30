@@ -8,6 +8,7 @@
 
   let recaptchaSiteKey = null;
   let lastFormValues = null;
+  let progressSteps = []; // full ordered list from /api/config
 
   function show(id) {
     screens.forEach((s) => {
@@ -27,9 +28,28 @@
     show('success-screen');
   }
 
-  function showProgress(detail) {
-    if (detail) $('progress-detail').textContent = detail;
+  function showProgress() {
     show('progress-screen');
+    renderChecklist(null);
+  }
+
+  function renderChecklist(progress) {
+    const list = $('progress-list');
+    if (!list || !progressSteps.length) return;
+
+    const completed = new Set((progress && progress.completed) || []);
+    const current = (progress && progress.current) || null;
+
+    list.innerHTML = '';
+    for (const step of progressSteps) {
+      const li = document.createElement('li');
+      let cls = 'pending';
+      if (completed.has(step)) cls = 'done';
+      if (step === current) cls = 'current';
+      li.className = cls;
+      li.textContent = step;
+      list.appendChild(li);
+    }
   }
 
   function showForm() {
@@ -54,6 +74,9 @@
       loadRecaptchaScript(config.recaptchaSiteKey);
       $('recaptcha-notice').hidden = false;
     }
+    if (Array.isArray(config.progressSteps)) {
+      progressSteps = config.progressSteps;
+    }
 
     if (!tokenRes.ok) {
       showError(tokenRes.body.error || 'Invalid signup link', false);
@@ -65,7 +88,7 @@
     if (data.status === 'ready' && data.customerUrl) {
       showSuccess(data.customerUrl);
     } else if (data.status === 'provisioning') {
-      showProgress('Continuing previous setup…');
+      showProgress();
       pollStatus();
     } else if (data.status === 'failed') {
       showError(data.error || 'Previous attempt failed.', true);
@@ -131,11 +154,7 @@
       if (result.status === 'ready' && result.url) {
         showSuccess(result.url);
       } else {
-        showProgress(
-          result.isReprovision
-            ? 'Replacing previous setup…'
-            : 'Connecting to your container…'
-        );
+        showProgress();
         pollStatus();
       }
     } catch (err) {
@@ -179,19 +198,20 @@
         const data = await res.json();
         if (data.status === 'ready' && data.customerUrl) {
           clearInterval(intervalId);
+          // Render one last time with everything completed.
+          if (data.progress) {
+            const everything = {
+              current: null,
+              completed: [...progressSteps],
+            };
+            renderChecklist(everything);
+          }
           showSuccess(data.customerUrl);
         } else if (data.status === 'failed') {
           clearInterval(intervalId);
           showError(data.error || 'Provisioning failed', true);
-        } else {
-          const messages = [
-            'Installing dependencies…',
-            'Setting up Caddy + TLS…',
-            'Configuring OpenClaw…',
-            'Applying your AI provider…',
-            'Verifying connection…',
-          ];
-          $('progress-detail').textContent = messages[Math.min(messages.length - 1, Math.floor(attempts / 6))];
+        } else if (data.progress) {
+          renderChecklist(data.progress);
         }
       } catch (_err) {
         // network blip — keep polling

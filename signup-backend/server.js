@@ -10,7 +10,24 @@ const {
   createToken,
   deleteToken,
 } = require('./lib/db');
-const { runInstallScript } = require('./lib/installer');
+const { runInstallScript, PROGRESS_STEPS } = require('./lib/installer');
+
+// Per-token live progress (kept in memory; survives polling but not restart).
+// { token: { current: string|null, completed: string[], finishedAt?: number } }
+const progressMap = new Map();
+function setProgress(token, value) {
+  progressMap.set(token, value);
+}
+function getProgress(token) {
+  return progressMap.get(token) || null;
+}
+// Sweep entries 30 minutes after they finish.
+setInterval(() => {
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  for (const [token, p] of progressMap.entries()) {
+    if (p.finishedAt && p.finishedAt < cutoff) progressMap.delete(token);
+  }
+}, 5 * 60 * 1000).unref();
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
@@ -146,10 +163,12 @@ async function verifyRecaptcha(captchaToken, ip) {
 // ─── Endpoints ──────────────────────────────────────────────────────
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
-// Public config — frontend reads this to know the reCAPTCHA site key.
+// Public config — frontend reads this to know the reCAPTCHA site key
+// and the full ordered list of progress steps it should render up front.
 app.get('/api/config', (_req, res) => {
   res.json({
     recaptchaSiteKey: RECAPTCHA_SITE_KEY || null,
+    progressSteps: PROGRESS_STEPS,
   });
 });
 
@@ -182,6 +201,7 @@ app.get('/api/status', statusLimiter, (req, res) => {
     status: record.status,
     customerUrl: record.customer_url || null,
     error: record.error_message || null,
+    progress: getProgress(token),
   });
 });
 
@@ -236,6 +256,9 @@ app.post('/api/provision', provisionLimiter, async (req, res) => {
 
   res.json({ status: 'provisioning', isReprovision });
 
+  // Reset live progress for this token.
+  setProgress(token, { current: null, completed: [] });
+
   // Background work.
   (async () => {
     const tag = `[${token.slice(0, 8)} ${record.domain}]`;
@@ -249,6 +272,11 @@ app.post('/api/provision', provisionLimiter, async (req, res) => {
         apiKey,
         log: (kind, text) =>
           process.stdout.write(`${tag} ${kind === 'stderr' ? '!' : '·'} ${text}`),
+        onProgress: ({ stepsReached, currentStep }) => {
+          // Mark the previously-current step as completed; promote the new one.
+          const prev = stepsReached.slice(0, -1);
+          setProgress(token, { current: currentStep, completed: prev });
+        },
       });
 
       if (!customerUrl) {
@@ -261,6 +289,16 @@ app.post('/api/provision', provisionLimiter, async (req, res) => {
         ssh_password: sshPassword,
         gateway_token: gatewayToken,
       });
+      // Mark every step complete + stamp finishedAt for cleanup.
+      const p = getProgress(token);
+      if (p) {
+        const allCompleted = [...new Set([...p.completed, ...(p.current ? [p.current] : [])])];
+        setProgress(token, {
+          current: null,
+          completed: allCompleted,
+          finishedAt: Date.now(),
+        });
+      }
       console.log(`${tag} ready: ${customerUrl}`);
     } catch (err) {
       console.error(`${tag} failed:`, err.message);
@@ -268,6 +306,8 @@ app.post('/api/provision', provisionLimiter, async (req, res) => {
         status: 'failed',
         error_message: err.message.slice(0, 1000),
       });
+      const p = getProgress(token);
+      if (p) setProgress(token, { ...p, finishedAt: Date.now() });
     }
   })();
 });
