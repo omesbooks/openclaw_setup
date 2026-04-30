@@ -20,6 +20,8 @@ set -euo pipefail
 DOMAIN=""
 RECAPTCHA_SITE_KEY=""
 RECAPTCHA_SECRET=""
+ADMIN_USER=""
+ADMIN_PASSWORD=""
 ASSUME_YES=false
 INSTALL_DIR="/opt/openclaw-signup"
 SERVICE_USER="openclaw-signup"
@@ -45,9 +47,14 @@ Usage: sudo bash install-control.sh [options]
 
 Options:
   --domain <name>             Public domain for the signup form
+  --admin-user <name>         Admin Basic-auth username (default: admin)
+  --admin-password <pw>       Admin Basic-auth password (random if omitted)
   --recaptcha-site-key <key>  Google reCAPTCHA v3 site key (optional)
   --recaptcha-secret <key>    Google reCAPTCHA v3 secret (optional)
   --yes                       Skip confirm prompts
+
+The admin dashboard is served at https://<domain>/admin (Basic auth).
+If --admin-password is omitted, a random password is generated and printed.
 
 If both reCAPTCHA flags are given, the form gates submissions through reCAPTCHA.
 Get keys at https://www.google.com/recaptcha/admin (choose v3).
@@ -60,6 +67,8 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --domain)              DOMAIN="$2"; shift 2 ;;
+    --admin-user)          ADMIN_USER="$2"; shift 2 ;;
+    --admin-password)      ADMIN_PASSWORD="$2"; shift 2 ;;
     --recaptcha-site-key)  RECAPTCHA_SITE_KEY="$2"; shift 2 ;;
     --recaptcha-secret)    RECAPTCHA_SECRET="$2"; shift 2 ;;
     --yes|-y)              ASSUME_YES=true; shift ;;
@@ -67,6 +76,14 @@ while [[ $# -gt 0 ]]; do
     *)                     err "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
+
+[[ -z "$ADMIN_USER" ]] && ADMIN_USER="admin"
+if [[ -z "$ADMIN_PASSWORD" ]]; then
+  ADMIN_PASSWORD=$(openssl rand -base64 18 | tr -d '=+/' | head -c 16)
+  ADMIN_PASSWORD_GENERATED=true
+else
+  ADMIN_PASSWORD_GENERATED=false
+fi
 
 cat <<'BANNER'
 
@@ -92,6 +109,8 @@ step "Plan"
 echo "  Domain        : $DOMAIN"
 echo "  Install dir   : $INSTALL_DIR"
 echo "  Service user  : $SERVICE_USER"
+echo "  Admin user    : $ADMIN_USER"
+echo "  Admin pass    : $($ADMIN_PASSWORD_GENERATED && echo "(generated — shown at end)" || echo "(provided)")"
 echo "  reCAPTCHA     : $([[ -n "$RECAPTCHA_SECRET" ]] && echo enabled || echo disabled)"
 $ASSUME_YES || { read -rp "Proceed? [Y/n] " yn; [[ "${yn:-}" =~ ^[Nn] ]] && fatal "aborted"; }
 
@@ -165,6 +184,8 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOST=127.0.0.1
 Environment=SIGNUP_BASE_URL=https://${DOMAIN}
+Environment=ADMIN_USER=${ADMIN_USER}
+Environment=ADMIN_PASSWORD=${ADMIN_PASSWORD}
 EOF
   if [[ -n "$RECAPTCHA_SITE_KEY" ]]; then
     echo "Environment=RECAPTCHA_SITE_KEY=${RECAPTCHA_SITE_KEY}"
@@ -219,8 +240,13 @@ cat <<EOF
   │   ${GRN}🎉 Control container ready!${RST}                                  │
   ╰────────────────────────────────────────────────────────────────╯
 
-  ${BLD}Signup form${RST}
+  ${BLD}Signup form (public)${RST}
     https://${DOMAIN}/
+
+  ${BLD}Admin dashboard${RST}
+    https://${DOMAIN}/admin
+    user:     ${ADMIN_USER}
+    password: ${ADMIN_PASSWORD}
 
   ${BLD}Public SSH key — add this to /root/.ssh/authorized_keys on each${RST}
   ${BLD}customer container (or bake into your LXC template)${RST}:
@@ -228,7 +254,8 @@ cat <<EOF
 ${PUB_KEY}
 
   ${BLD}Register a new customer container${RST}
-    oc-register customer-foo.openclaw.example.com 10.0.0.12
+    Open the admin dashboard, click "+ Add container"
+    OR via CLI on this host:  oc-register <domain> <container-ip>
 
   ${BLD}Logs${RST}
     journalctl -u openclaw-signup -f

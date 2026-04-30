@@ -57,23 +57,27 @@ The installer:
 
 ## Add a customer
 
-After preparing the customer's LXC + DNS A record + Mikrotik forward:
+Two ways: web dashboard or CLI.
+
+### A. Admin dashboard (recommended)
+
+Open `https://<your-signup-domain>/admin` (Basic auth — user + password printed at the end of `install-control.sh`).
+
+Click **"+ Add container"**, fill in domain + IP, get the signup URL to email the customer. The dashboard shows status of every container at a glance — pending / provisioning / ready / failed — with actions for revoke, reset, copy URL, and detail.
+
+### B. CLI (on the control container)
 
 ```bash
 oc-register customer-foo.openclaw.example.com 10.0.0.12
 ```
 
-Outputs a signup URL like:
+Either way, the customer gets a URL like:
 
 ```
 https://signup.metaelearning.online/?token=<random>
 ```
 
-Send that URL to your customer. They:
-1. Open the URL in any browser
-2. Pick AI provider, paste API key
-3. Wait ~3 minutes
-4. Get the customer URL → click → use OpenClaw
+They open it, pick AI provider, paste API key, wait ~3 minutes, click "Open OpenClaw".
 
 ## Admin commands
 
@@ -121,6 +125,24 @@ oc-register --revoke <token>
 | `RECAPTCHA_SITE_KEY` | _(empty)_ | Google reCAPTCHA v3 site key (frontend) |
 | `RECAPTCHA_SECRET` | _(empty)_ | reCAPTCHA secret (server-side verify). If empty, reCAPTCHA is disabled. |
 | `RECAPTCHA_MIN_SCORE` | `0.5` | Minimum reCAPTCHA score to allow (0.0–1.0) |
+| `ADMIN_USER` | `admin` | Username for the admin dashboard (Basic auth) |
+| `ADMIN_PASSWORD` | _(empty)_ | Password for the admin dashboard. If empty, `/admin` is disabled. |
+
+## Admin dashboard
+
+`GET /admin` — Basic auth, listing every registered token + status + actions.
+
+### Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/admin/tokens` | List every registered token + status |
+| `POST` | `/api/admin/tokens` | Create a new token (body: `{domain, containerIp, containerUser?}`) |
+| `DELETE` | `/api/admin/tokens/:token` | Revoke a token (LXC is **not** touched) |
+| `POST` | `/api/admin/tokens/:token/reset` | Reset status to `pending` so the form can be reused |
+| `GET` | `/api/admin/tokens/:token/liveness` | Server-side probe of the customer's `/healthz` |
+
+All admin endpoints require Basic auth using `ADMIN_USER` + `ADMIN_PASSWORD`.
 
 ## Rate limits
 

@@ -1,0 +1,172 @@
+/* admin.css — overrides on top of style.css for the admin dashboard. */
+
+.admin-body {
+  background: var(--bg);
+  margin: 0;
+}
+
+.admin-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.admin-title { display: flex; align-items: center; gap: 12px; }
+.admin-title h1 { font-size: 18px; margin: 0; }
+.logo-sm { font-size: 24px; }
+
+button.primary.small {
+  width: auto;
+  padding: 8px 14px;
+  font-size: 14px;
+}
+
+.stats {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 16px 24px;
+}
+
+.stat-pill {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.stat-pill .num { font-weight: 700; font-size: 18px; }
+.stat-pill.ready .num { color: var(--success); }
+.stat-pill.failed .num { color: var(--danger); }
+.stat-pill.provisioning .num { color: #d97706; }
+
+.add-form-wrap, .add-result {
+  padding: 16px 24px;
+}
+
+.add-form-wrap .card,
+.add-result .card {
+  max-width: 640px;
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 8px 16px;
+  font-size: 14px;
+  align-items: center;
+}
+
+.kv span { color: var(--muted); }
+.kv code {
+  background: var(--bg);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}
+
+.success-text { color: var(--success); }
+
+.table-wrap {
+  padding: 0 24px 24px;
+  overflow-x: auto;
+}
+
+.containers-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 14px;
+}
+
+.containers-table th,
+.containers-table td {
+  text-align: left;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.containers-table tr:last-child td { border-bottom: 0; }
+
+.containers-table th {
+  background: var(--bg);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.containers-table tbody tr:hover { background: var(--bg); }
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.status-badge::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-badge.ready        { background: rgba(26,139,58,0.1);  color: var(--success); }
+.status-badge.ready::before        { background: var(--success); }
+.status-badge.failed       { background: rgba(198,40,40,0.1);  color: var(--danger); }
+.status-badge.failed::before       { background: var(--danger); }
+.status-badge.provisioning { background: rgba(217,119,6,0.1);  color: #d97706; }
+.status-badge.provisioning::before { background: #d97706; animation: pulse 1.5s infinite; }
+.status-badge.pending      { background: rgba(107,107,107,0.1); color: var(--muted); }
+.status-badge.pending::before      { background: var(--muted); }
+
+@keyframes pulse { 50% { opacity: 0.3; } }
+
+.row-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.row-actions button {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--fg);
+}
+.row-actions button:hover { background: var(--card); border-color: var(--primary); }
+.row-actions button.danger:hover { background: rgba(198,40,40,0.1); border-color: var(--danger); color: var(--danger); }
+
+dialog { border: 0; padding: 0; border-radius: 14px; max-width: 600px; width: 90%; }
+dialog::backdrop { background: rgba(0,0,0,0.4); }
+dialog .card { margin: 0; border: 0; box-shadow: none; }
+
+.center { text-align: center; }

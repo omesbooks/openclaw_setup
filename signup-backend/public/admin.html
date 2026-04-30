@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenClaw — Admin</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/admin.css" />
+</head>
+<body class="admin-body">
+  <header class="admin-header">
+    <div class="admin-title">
+      <span class="logo-sm">🦞</span>
+      <h1>OpenClaw — Admin</h1>
+    </div>
+    <button id="add-btn" class="primary small">+ Add container</button>
+  </header>
+
+  <section class="stats" id="stats"></section>
+
+  <section class="add-form-wrap" id="add-form-wrap" hidden>
+    <form id="add-form" class="card">
+      <h2>Register a new customer container</h2>
+      <p class="dim">After you've created the LXC + DNS + Mikrotik forward.</p>
+
+      <label class="field">
+        <span>Domain</span>
+        <input type="text" name="domain" required
+               placeholder="customer-foo.openclaw.metaelearning.online"
+               pattern="[a-z0-9.-]+" />
+      </label>
+
+      <label class="field">
+        <span>Container IP</span>
+        <input type="text" name="containerIp" required
+               placeholder="10.0.0.12" />
+      </label>
+
+      <label class="field">
+        <span>Container SSH user</span>
+        <input type="text" name="containerUser" value="root" />
+      </label>
+
+      <div class="form-actions">
+        <button type="button" id="cancel-add" class="link-btn">Cancel</button>
+        <button type="submit" class="primary">Create token</button>
+      </div>
+    </form>
+  </section>
+
+  <section class="add-result" id="add-result" hidden>
+    <div class="card">
+      <h2 class="success-text">✓ Token created</h2>
+      <div class="kv">
+        <span>Domain</span>      <code id="ar-domain"></code>
+        <span>Container</span>   <code id="ar-ip"></code>
+        <span>Signup URL</span>
+        <code id="ar-url" class="copyable"></code>
+      </div>
+      <div class="form-actions">
+        <button id="copy-url" class="primary">Copy signup URL</button>
+        <button id="back-list" class="link-btn">Back to list</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="table-wrap">
+    <table class="containers-table" id="tokens-table">
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Domain</th>
+          <th>IP</th>
+          <th>Provider</th>
+          <th>Email</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody><tr><td colspan="7" class="dim center">Loading…</td></tr></tbody>
+    </table>
+  </section>
+
+  <!-- Row detail modal -->
+  <dialog id="detail-dialog">
+    <div class="card">
+      <h2 id="dd-domain"></h2>
+      <div class="kv" id="dd-fields"></div>
+      <div class="form-actions">
+        <button id="dd-close" class="link-btn">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="/admin.js"></script>
+</body>
+</html>
