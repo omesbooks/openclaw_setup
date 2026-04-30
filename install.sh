@@ -235,7 +235,9 @@ ok "config patched + gateway restarted"
 
 # ─── Step 8: Caddy config ──────────────────────────────────────────
 step "[8/9] Configuring Caddy reverse proxy"
-mkdir -p /var/log/caddy && chown caddy:caddy /var/log/caddy
+# (Access logs go to systemd journal automatically — no file path needed.
+# A file path under /var/log/caddy fights with Caddy's systemd hardening
+# on some images and causes reload to hang.)
 cat > /etc/caddy/Caddyfile <<EOF
 {
     servers {
@@ -244,10 +246,6 @@ cat > /etc/caddy/Caddyfile <<EOF
 }
 
 $DOMAIN {
-    log {
-        output file /var/log/caddy/access.log
-        format json
-    }
     reverse_proxy 127.0.0.1:18789
 }
 EOF
