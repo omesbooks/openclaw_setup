@@ -18,6 +18,8 @@
 set -euo pipefail
 
 DOMAIN=""
+RECAPTCHA_SITE_KEY=""
+RECAPTCHA_SECRET=""
 ASSUME_YES=false
 INSTALL_DIR="/opt/openclaw-signup"
 SERVICE_USER="openclaw-signup"
@@ -42,8 +44,13 @@ usage() {
 Usage: sudo bash install-control.sh [options]
 
 Options:
-  --domain <name>   Public domain for the signup form (e.g. signup.metaelearning.online)
-  --yes             Skip confirm prompts
+  --domain <name>             Public domain for the signup form
+  --recaptcha-site-key <key>  Google reCAPTCHA v3 site key (optional)
+  --recaptcha-secret <key>    Google reCAPTCHA v3 secret (optional)
+  --yes                       Skip confirm prompts
+
+If both reCAPTCHA flags are given, the form gates submissions through reCAPTCHA.
+Get keys at https://www.google.com/recaptcha/admin (choose v3).
 
 DNS A record for <domain> must point to this host.
 Ports 80, 443 must be reachable from the internet.
@@ -52,10 +59,12 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --domain)  DOMAIN="$2"; shift 2 ;;
-    --yes|-y)  ASSUME_YES=true; shift ;;
-    -h|--help) usage; exit 0 ;;
-    *)         err "Unknown option: $1"; usage; exit 1 ;;
+    --domain)              DOMAIN="$2"; shift 2 ;;
+    --recaptcha-site-key)  RECAPTCHA_SITE_KEY="$2"; shift 2 ;;
+    --recaptcha-secret)    RECAPTCHA_SECRET="$2"; shift 2 ;;
+    --yes|-y)              ASSUME_YES=true; shift ;;
+    -h|--help)             usage; exit 0 ;;
+    *)                     err "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
 
@@ -74,10 +83,16 @@ if [[ -z "$DOMAIN" ]]; then
 fi
 [[ -z "$DOMAIN" ]] && fatal "DOMAIN is required"
 
+if [[ -n "$RECAPTCHA_SITE_KEY" && -z "$RECAPTCHA_SECRET" ]] || \
+   [[ -z "$RECAPTCHA_SITE_KEY" && -n "$RECAPTCHA_SECRET" ]]; then
+  fatal "Both --recaptcha-site-key and --recaptcha-secret must be given (or neither)."
+fi
+
 step "Plan"
 echo "  Domain        : $DOMAIN"
 echo "  Install dir   : $INSTALL_DIR"
 echo "  Service user  : $SERVICE_USER"
+echo "  reCAPTCHA     : $([[ -n "$RECAPTCHA_SECRET" ]] && echo enabled || echo disabled)"
 $ASSUME_YES || { read -rp "Proceed? [Y/n] " yn; [[ "${yn:-}" =~ ^[Nn] ]] && fatal "aborted"; }
 
 step "[1/7] Installing system dependencies"
@@ -134,7 +149,8 @@ PUB_KEY=$(cat "${KEY_PATH}.pub")
 ok "SSH key ready: $KEY_PATH"
 
 step "[6/7] systemd service"
-cat > /etc/systemd/system/openclaw-signup.service <<EOF
+{
+  cat <<EOF
 [Unit]
 Description=OpenClaw signup backend
 After=network-online.target
@@ -149,6 +165,12 @@ Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=HOST=127.0.0.1
 Environment=SIGNUP_BASE_URL=https://${DOMAIN}
+EOF
+  if [[ -n "$RECAPTCHA_SITE_KEY" ]]; then
+    echo "Environment=RECAPTCHA_SITE_KEY=${RECAPTCHA_SITE_KEY}"
+    echo "Environment=RECAPTCHA_SECRET=${RECAPTCHA_SECRET}"
+  fi
+  cat <<EOF
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=5
@@ -156,6 +178,7 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+} > /etc/systemd/system/openclaw-signup.service
 systemctl daemon-reload
 systemctl enable --now openclaw-signup
 sleep 2

@@ -187,8 +187,31 @@ a.primary.big {
 .checkmark { background: var(--success); }
 .cross { background: var(--danger); }
 
+.link-btn {
+  background: none;
+  border: 0;
+  color: var(--primary);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 8px 0;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  color: var(--primary-dark);
+}
+
 .page-footer {
   text-align: center;
   margin-top: 32px;
   color: var(--muted);
+  font-size: 12px;
 }
+
+.page-footer a {
+  color: inherit;
+}
+
+/* Hide the floating reCAPTCHA badge — we surface attribution in the footer. */
+.grecaptcha-badge { visibility: hidden; }

@@ -4,6 +4,64 @@ A single-script installer that turns a fresh Ubuntu 22.04 container into a custo
 
 > Want a Hostinger-style **web signup form** so customers self-serve their API key? See [`signup-backend/`](./signup-backend/) — a small Node.js + SQLite service that wraps this installer in an Express API and HTML form.
 
+## Repo layout — two pieces, two roles
+
+```
+omesbooks/openclaw_setup
+├── install.sh              ◀── runs INSIDE each customer container
+│                                provisions Caddy + openclaw + setup-provider
+│                                (the "worker")
+│
+└── signup-backend/         ◀── runs ON ONE control container
+    ├── server.js                Node/Express API + HTML form
+    ├── install-control.sh       installer for THIS service
+    └── …                        (the "orchestrator")
+```
+
+| Piece | Where it runs | What it does | When to use |
+|---|---|---|---|
+| **`install.sh`** | inside each **customer** LXC | install Caddy + openclaw, configure TLS, optionally set AI provider | every time you spin up a new customer container |
+| **`signup-backend/`** | inside ONE **control** LXC | hosts a public form + SSHes into customer LXCs to run `install.sh` for them | once, when you want customers to self-serve via web |
+
+### Three ways to use this repo, increasing automation
+
+#### Mode 1 — operator pipes the script via SSH (no infrastructure needed)
+
+```bash
+ssh root@new-customer-lxc 'bash -s -- --domain customer-01.example.com --yes' \
+  < install.sh
+```
+
+Operator does everything; customer SSHes in to run `setup-provider` for the API key.
+
+#### Mode 2 — operator one-liner with API key (1 command per customer)
+
+```bash
+ssh root@new-customer-lxc "curl -fsSL \
+  https://raw.githubusercontent.com/omesbooks/openclaw_setup/main/install.sh \
+  | bash -s -- \
+      --domain customer-01.example.com \
+      --provider anthropic \
+      --api-key sk-ant-… \
+      --yes"
+```
+
+Operator runs one command; customer just clicks the URL — no SSH ever.
+
+#### Mode 3 — customer self-serve via web form (operator does 1 admin step per customer)
+
+```bash
+# Operator (after creating LXC + DNS + Mikrotik forward):
+ssh root@control-lxc "oc-register customer-01.example.com 10.0.0.12"
+# → outputs https://signup.metaelearning.online/?token=…
+# Operator emails this URL to the customer.
+
+# Customer (in their browser):
+#   open URL → pick provider → paste API key → wait 3 min → click "Open OpenClaw"
+```
+
+This is the Hostinger-style flow. See [`signup-backend/README.md`](./signup-backend/README.md) for setup.
+
 ## What you get
 
 ```

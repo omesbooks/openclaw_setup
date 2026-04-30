@@ -6,6 +6,9 @@
   const $ = (id) => document.getElementById(id);
   const screens = ['form-screen', 'progress-screen', 'success-screen', 'error-screen'];
 
+  let recaptchaSiteKey = null;
+  let lastFormValues = null;
+
   function show(id) {
     screens.forEach((s) => {
       const el = $(s);
@@ -13,8 +16,9 @@
     });
   }
 
-  function showError(msg) {
+  function showError(msg, allowRetry) {
     $('error-message').textContent = msg || 'Unknown error';
+    $('retry-btn').hidden = !allowRetry;
     show('error-screen');
   }
 
@@ -28,32 +32,70 @@
     show('progress-screen');
   }
 
+  function showForm() {
+    show('form-screen');
+    const btn = $('submit-btn');
+    btn.disabled = false;
+    btn.textContent = 'Set up my OpenClaw →';
+  }
+
   if (!token) {
-    showError('This signup link is missing a token. Please check with your operator.');
+    showError('This signup link is missing a token. Please check with your operator.', false);
     return;
   }
 
-  // Load token info on page load.
-  fetch(`/api/token-info?token=${encodeURIComponent(token)}`)
-    .then(async (res) => {
-      const data = await res.json();
-      if (!res.ok) {
-        showError(data.error || 'Invalid signup link');
-        return;
-      }
-      $('domain-display').textContent = data.domain;
+  // Load config + token info on page load.
+  Promise.all([
+    fetch('/api/config').then((r) => r.json()).catch(() => ({})),
+    fetch(`/api/token-info?token=${encodeURIComponent(token)}`).then(async (r) => ({ ok: r.ok, body: await r.json() })),
+  ]).then(([config, tokenRes]) => {
+    if (config.recaptchaSiteKey) {
+      recaptchaSiteKey = config.recaptchaSiteKey;
+      loadRecaptchaScript(config.recaptchaSiteKey);
+      $('recaptcha-notice').hidden = false;
+    }
 
-      if (data.status === 'ready' && data.customerUrl) {
-        showSuccess(data.customerUrl);
-      } else if (data.status === 'provisioning') {
-        showProgress('Continuing previous setup…');
-        pollStatus();
-      } else if (data.status === 'failed') {
-        showError(data.error || 'Previous attempt failed. Contact operator.');
-      }
-      // else 'pending' — show form (default state)
-    })
-    .catch(() => showError('Could not contact server'));
+    if (!tokenRes.ok) {
+      showError(tokenRes.body.error || 'Invalid signup link', false);
+      return;
+    }
+    const data = tokenRes.body;
+    $('domain-display').textContent = data.domain;
+
+    if (data.status === 'ready' && data.customerUrl) {
+      showSuccess(data.customerUrl);
+    } else if (data.status === 'provisioning') {
+      showProgress('Continuing previous setup…');
+      pollStatus();
+    } else if (data.status === 'failed') {
+      showError(data.error || 'Previous attempt failed.', true);
+    }
+    // else 'pending' — show form (default state)
+  }).catch(() => showError('Could not contact server', true));
+
+  function loadRecaptchaScript(siteKey) {
+    if (document.getElementById('recaptcha-script')) return;
+    const s = document.createElement('script');
+    s.id = 'recaptcha-script';
+    s.src = `https://www.google.com/recaptcha/api.js?render=${encodeURIComponent(siteKey)}`;
+    s.async = true;
+    s.defer = true;
+    document.head.appendChild(s);
+  }
+
+  async function getCaptchaToken() {
+    if (!recaptchaSiteKey || typeof grecaptcha === 'undefined') return undefined;
+    return new Promise((resolve, reject) => {
+      grecaptcha.ready(async () => {
+        try {
+          const t = await grecaptcha.execute(recaptchaSiteKey, { action: 'provision' });
+          resolve(t);
+        } catch (err) {
+          reject(err);
+        }
+      });
+    });
+  }
 
   // Submit form.
   $('signup-form').addEventListener('submit', async (e) => {
@@ -63,18 +105,19 @@
     btn.disabled = true;
     btn.textContent = 'Submitting…';
 
-    const data = {
-      token,
+    const values = {
       provider: form.provider.value,
       apiKey: form.apiKey.value,
       email: form.email.value || undefined,
     };
+    lastFormValues = values;
 
     try {
+      const captchaToken = await getCaptchaToken();
       const res = await fetch('/api/provision', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify({ token, ...values, captchaToken }),
       });
       const result = await res.json();
 
@@ -88,7 +131,11 @@
       if (result.status === 'ready' && result.url) {
         showSuccess(result.url);
       } else {
-        showProgress('Connecting to your container…');
+        showProgress(
+          result.isReprovision
+            ? 'Replacing previous setup…'
+            : 'Connecting to your container…'
+        );
         pollStatus();
       }
     } catch (err) {
@@ -98,14 +145,33 @@
     }
   });
 
+  // Reset (success screen) — go back to form, prompt to confirm.
+  $('reset-btn').addEventListener('click', () => {
+    if (!confirm(
+      'Replace your current AI provider configuration?\n\n' +
+      'Your existing OpenClaw URL will stop working — a new URL will be issued.'
+    )) return;
+    if (lastFormValues) {
+      const f = $('signup-form');
+      f.provider.value = lastFormValues.provider || '';
+      f.apiKey.value = '';
+      f.email.value = lastFormValues.email || '';
+    }
+    showForm();
+  });
+
+  // Retry (error screen).
+  $('retry-btn').addEventListener('click', () => {
+    showForm();
+  });
+
   function pollStatus() {
     let attempts = 0;
     const intervalId = setInterval(async () => {
       attempts++;
-      // Stop polling after ~10 minutes.
       if (attempts > 120) {
         clearInterval(intervalId);
-        showError('Setup is taking longer than expected. Please contact your operator.');
+        showError('Setup is taking longer than expected. Please contact your operator.', true);
         return;
       }
       try {
@@ -116,9 +182,8 @@
           showSuccess(data.customerUrl);
         } else if (data.status === 'failed') {
           clearInterval(intervalId);
-          showError(data.error || 'Provisioning failed');
+          showError(data.error || 'Provisioning failed', true);
         } else {
-          // Update progress message every few polls.
           const messages = [
             'Installing dependencies…',
             'Setting up Caddy + TLS…',
@@ -129,7 +194,7 @@
           $('progress-detail').textContent = messages[Math.min(messages.length - 1, Math.floor(attempts / 6))];
         }
       } catch (_err) {
-        // Network blip — keep polling.
+        // network blip — keep polling
       }
     }, 5000);
   }

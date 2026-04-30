@@ -70,6 +70,10 @@
           Open OpenClaw →
         </a>
         <p class="hint">Bookmark this URL — you'll need it to come back.</p>
+        <hr />
+        <button id="reset-btn" class="link-btn" type="button">
+          Need to change provider or API key? →
+        </button>
       </div>
     </main>
 
@@ -79,11 +83,19 @@
         <h2>Something went wrong</h2>
         <p id="error-message" class="dim"></p>
         <p class="hint">Please contact your operator with the details above.</p>
+        <button id="retry-btn" class="link-btn" type="button" hidden>
+          Try again →
+        </button>
       </div>
     </main>
 
     <footer class="page-footer">
       <small>Powered by OpenClaw self-host</small>
+      <small id="recaptcha-notice" hidden>
+        Protected by reCAPTCHA —
+        <a href="https://policies.google.com/privacy">Privacy</a> &
+        <a href="https://policies.google.com/terms">Terms</a>
+      </small>
     </footer>
   </div>
 

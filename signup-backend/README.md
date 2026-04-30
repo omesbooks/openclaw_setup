@@ -29,6 +29,23 @@ ssh root@control-container "curl -fsSL \
   | bash -s -- --domain signup.metaelearning.online --yes"
 ```
 
+### With reCAPTCHA (recommended for public deployments)
+
+Get a v3 site key + secret at <https://www.google.com/recaptcha/admin>, then:
+
+```bash
+ssh root@control-container "curl -fsSL \
+  https://raw.githubusercontent.com/omesbooks/openclaw_setup/main/signup-backend/install-control.sh \
+  | bash -s -- \
+      --domain signup.metaelearning.online \
+      --recaptcha-site-key '6Lc...' \
+      --recaptcha-secret '6Lc...' \
+      --yes"
+```
+
+reCAPTCHA can also be added/changed later by editing
+`/etc/systemd/system/openclaw-signup.service` and restarting.
+
 The installer:
 1. installs Node 20, Caddy, Git
 2. clones this repo to `/opt/openclaw-signup`
@@ -101,6 +118,33 @@ oc-register --revoke <token>
 | `SSH_KEY_PATH` | `data/control_key` | Private key for outbound SSH |
 | `INSTALL_SCRIPT_URL` | GitHub raw URL of `install.sh` | What gets piped to bash on customer containers |
 | `SIGNUP_BASE_URL` | `https://signup.metaelearning.online` | Used by `oc-register` to build the URL it prints |
+| `RECAPTCHA_SITE_KEY` | _(empty)_ | Google reCAPTCHA v3 site key (frontend) |
+| `RECAPTCHA_SECRET` | _(empty)_ | reCAPTCHA secret (server-side verify). If empty, reCAPTCHA is disabled. |
+| `RECAPTCHA_MIN_SCORE` | `0.5` | Minimum reCAPTCHA score to allow (0.0–1.0) |
+
+## Rate limits
+
+- `POST /api/provision` — 5 / IP / minute
+- `GET  /api/status`    — 30 / IP / 10 seconds (generous for polling)
+
+Adjust in `server.js` if needed.
+
+## Reprovisioning ("reset")
+
+Customers can change their AI provider/key without operator help:
+
+1. On the success screen, click "Need to change provider or API key? →"
+2. Confirm the prompt (warns the existing URL will stop working)
+3. Pick a new provider, paste a new key
+4. The same token is reused; `install.sh` runs again on the same container,
+   which generates a fresh gateway token + URL.
+
+State machine:
+```
+pending      → provisioning → ready / failed
+ready/failed → provisioning → ready / failed   (reprovision allowed)
+provisioning → 409 conflict                      (already in flight)
+```
 
 ## Logs
 
