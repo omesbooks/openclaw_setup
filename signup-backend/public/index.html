@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenClaw — Sign up</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="page-header">
+      <div class="logo">🦞</div>
+      <h1>OpenClaw</h1>
+      <p class="subtitle">Set up your private AI workspace</p>
+    </header>
+
+    <main id="form-screen" class="screen">
+      <div class="card">
+        <p class="domain-label">Your workspace</p>
+        <h2 id="domain-display" class="domain">Loading…</h2>
+        <hr />
+        <form id="signup-form" autocomplete="off">
+          <label class="field">
+            <span>AI provider</span>
+            <select name="provider" required>
+              <option value="">Choose…</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+              <option value="openai">OpenAI (GPT)</option>
+              <option value="gemini">Google (Gemini)</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="deepseek">DeepSeek</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>API key</span>
+            <input type="password" name="apiKey" required placeholder="sk-…" />
+            <small>Get this from your AI provider's dashboard.</small>
+          </label>
+
+          <label class="field">
+            <span>Email (optional)</span>
+            <input type="email" name="email" placeholder="you@example.com" />
+            <small>We'll email the URL when it's ready.</small>
+          </label>
+
+          <button type="submit" id="submit-btn" class="primary">
+            Set up my OpenClaw →
+          </button>
+          <p class="hint">Your API key is sent over HTTPS and stored only inside your own container.</p>
+        </form>
+      </div>
+    </main>
+
+    <main id="progress-screen" class="screen" hidden>
+      <div class="card center">
+        <div class="spinner" aria-hidden="true"></div>
+        <h2>Setting up your OpenClaw…</h2>
+        <p>This usually takes 2-3 minutes.</p>
+        <p class="dim" id="progress-detail">Installing dependencies…</p>
+      </div>
+    </main>
+
+    <main id="success-screen" class="screen" hidden>
+      <div class="card center">
+        <div class="checkmark" aria-hidden="true">✓</div>
+        <h2>Your OpenClaw is ready!</h2>
+        <p>Click below to open your workspace.</p>
+        <a id="open-url" class="primary big" href="#" target="_blank" rel="noopener">
+          Open OpenClaw →
+        </a>
+        <p class="hint">Bookmark this URL — you'll need it to come back.</p>
+      </div>
+    </main>
+
+    <main id="error-screen" class="screen" hidden>
+      <div class="card center">
+        <div class="cross" aria-hidden="true">✗</div>
+        <h2>Something went wrong</h2>
+        <p id="error-message" class="dim"></p>
+        <p class="hint">Please contact your operator with the details above.</p>
+      </div>
+    </main>
+
+    <footer class="page-footer">
+      <small>Powered by OpenClaw self-host</small>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

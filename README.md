@@ -2,6 +2,8 @@
 
 A single-script installer that turns a fresh Ubuntu 22.04 container into a customer-ready, HTTPS-enabled OpenClaw deployment with **zero browser friction**: no auth dialog, no device pairing, no manual config — the customer clicks the URL and lands on the chat UI.
 
+> Want a Hostinger-style **web signup form** so customers self-serve their API key? See [`signup-backend/`](./signup-backend/) — a small Node.js + SQLite service that wraps this installer in an Express API and HTML form.
+
 ## What you get
 
 ```

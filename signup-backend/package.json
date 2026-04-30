@@ -1,0 +1,19 @@
+{
+  "name": "openclaw-signup-backend",
+  "version": "1.2.0",
+  "description": "Signup form + provisioning API for OpenClaw self-host instances",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "register": "node bin/register-container.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "express": "^4.21.0",
+    "node-ssh": "^13.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
