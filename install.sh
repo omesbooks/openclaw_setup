@@ -633,23 +633,27 @@ if backup.get("nodes_pairing") is not None:
 json.dump(c, open(path, "w"), indent=2)
 PY
 
-  # For OpenAI-compatible custom providers, openclaw defaults to a tiny 16k
-  # context window. Bump it for known large-context models so 'Compact'
-  # doesn't kick in on every other message.
+  # For OpenAI-compatible custom providers, openclaw seeds the model entry
+  # with contextWindow=16000 / maxTokens=4096. Bump them so 'Compact'
+  # doesn't kick in on every other message — most modern models on
+  # NVIDIA/Together/Groq support 64k–256k context.
   if [[ "$AUTH_CHOICE" == "custom-api-key" ]]; then
-    sudo -u "$GATEWAY_USER" python3 - "/home/$GATEWAY_USER/.openclaw/openclaw.json" "$CUSTOM_MODEL_ID" <<'PYEOF'
+    sudo -u "$GATEWAY_USER" python3 - "/home/$GATEWAY_USER/.openclaw/openclaw.json" <<'PYEOF'
 import json, sys
-path, model_id = sys.argv[1], sys.argv[2]
+path = sys.argv[1]
 c = json.load(open(path))
-agents = c.setdefault('agents', {}).setdefault('defaults', {})
-models = agents.setdefault('models', {})
-# openclaw stores the primary model with its provider prefix; mirror that.
-primary = (agents.get('model') or {}).get('primary')
-caps = {'contextWindow': 128000, 'maxOutputTokens': 8192}
-if primary:
-    models.setdefault(primary, {}).update(caps)
-# Also seed the bare model id (so it's set even before the primary key shows up)
-models.setdefault(model_id, {}).update(caps)
+providers = c.setdefault('models', {}).setdefault('providers', {})
+for pid, pcfg in providers.items():
+    if not isinstance(pcfg, dict):
+        continue
+    # provider-level defaults (used when openclaw discovers a new model)
+    pcfg['contextWindow'] = 128000
+    pcfg['maxTokens'] = 8192
+    # per-model entries — this is what's actually consumed at runtime
+    for m in pcfg.get('models', []):
+        if isinstance(m, dict):
+            m['contextWindow'] = 128000
+            m['maxTokens'] = 8192
 json.dump(c, open(path, 'w'), indent=2)
 PYEOF
   fi
