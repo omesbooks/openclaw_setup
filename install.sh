@@ -633,6 +633,27 @@ if backup.get("nodes_pairing") is not None:
 json.dump(c, open(path, "w"), indent=2)
 PY
 
+  # For OpenAI-compatible custom providers, openclaw defaults to a tiny 16k
+  # context window. Bump it for known large-context models so 'Compact'
+  # doesn't kick in on every other message.
+  if [[ "$AUTH_CHOICE" == "custom-api-key" ]]; then
+    sudo -u "$GATEWAY_USER" python3 - "/home/$GATEWAY_USER/.openclaw/openclaw.json" "$CUSTOM_MODEL_ID" <<'PYEOF'
+import json, sys
+path, model_id = sys.argv[1], sys.argv[2]
+c = json.load(open(path))
+agents = c.setdefault('agents', {}).setdefault('defaults', {})
+models = agents.setdefault('models', {})
+# openclaw stores the primary model with its provider prefix; mirror that.
+primary = (agents.get('model') or {}).get('primary')
+caps = {'contextWindow': 128000, 'maxOutputTokens': 8192}
+if primary:
+    models.setdefault(primary, {}).update(caps)
+# Also seed the bare model id (so it's set even before the primary key shows up)
+models.setdefault(model_id, {}).update(caps)
+json.dump(c, open(path, 'w'), indent=2)
+PYEOF
+  fi
+
   systemctl restart openclaw-gateway
   for i in {1..30}; do
     (echo > /dev/tcp/127.0.0.1/18789) >/dev/null 2>&1 && break
