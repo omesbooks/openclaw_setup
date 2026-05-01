@@ -341,9 +341,13 @@ ok "Caddy reloaded (Let's Encrypt cert in flight)"
 cat > /usr/local/bin/openclaw-auto-pair <<'WATCHDOG_EOF'
 #!/usr/bin/env bash
 # Auto-approve any pending device pairing request.
-# Runs as the gateway user. Polls the openclaw CLI every 3 seconds.
+# Runs as the gateway user. Polls every WATCHDOG_INTERVAL seconds (default 15).
+# Each `openclaw devices list` call spawns a Node.js process and opens a WS
+# session, so 3s polling can saturate small LXCs. 15s is a good balance
+# between pairing UX (~15s wait on first connect) and CPU load.
 set +e
 export HOME="${HOME:-/home/$(id -un)}"
+INTERVAL="${WATCHDOG_INTERVAL:-15}"
 
 while true; do
   PENDING_IDS=$(openclaw devices list 2>/dev/null | awk '
@@ -355,7 +359,7 @@ while true; do
     [[ -n "$REQ_ID" ]] && openclaw devices approve "$REQ_ID" >/dev/null 2>&1 && \
       echo "[auto-pair] approved $REQ_ID"
   done
-  sleep 3
+  sleep "$INTERVAL"
 done
 WATCHDOG_EOF
 chmod 755 /usr/local/bin/openclaw-auto-pair
