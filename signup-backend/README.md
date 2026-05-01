@@ -118,7 +118,11 @@ Either way the dashboard shows the new row immediately. Use the **Copy signup UR
 
 1. Click the signup URL.
 2. Form: pick provider (Anthropic / OpenAI / Gemini / OpenRouter / DeepSeek), paste API key, optionally email.
-3. Live progress checklist (~14 steps, ticks one by one):
+3. Provider list now includes:
+   - Anthropic, OpenAI, Gemini, OpenRouter, DeepSeek
+   - **NVIDIA Build** (presets baked in — base URL + Kimi K2 model)
+   - **Custom** (any OpenAI-compatible endpoint — Together, Groq, Fireworks, Ollama, …; the form prompts for base URL + model id)
+4. Live progress checklist (~14 steps, ticks one by one):
    - Connecting to your workspace
    - Installing system packages
    - Installing Node.js runtime

@@ -64,6 +64,45 @@
     return;
   }
 
+  // Provider-conditional fields (NVIDIA + Custom show base URL + model id).
+  const NVIDIA_DEFAULTS = {
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    modelId: 'moonshotai/kimi-k2-instruct',
+  };
+  function refreshProviderFields() {
+    const sel = $('provider-select');
+    const provider = sel ? sel.value : '';
+    const baseField = $('field-custom-base-url');
+    const modelField = $('field-custom-model-id');
+    const baseInput = baseField ? baseField.querySelector('input') : null;
+    const modelInput = modelField ? modelField.querySelector('input') : null;
+
+    if (provider === 'nvidia') {
+      if (baseField) baseField.hidden = false;
+      if (modelField) modelField.hidden = false;
+      if (baseInput) {
+        baseInput.required = false;
+        if (!baseInput.value) baseInput.value = NVIDIA_DEFAULTS.baseUrl;
+      }
+      if (modelInput) {
+        modelInput.required = false;
+        if (!modelInput.value) modelInput.value = NVIDIA_DEFAULTS.modelId;
+      }
+    } else if (provider === 'custom') {
+      if (baseField) baseField.hidden = false;
+      if (modelField) modelField.hidden = false;
+      if (baseInput) baseInput.required = true;
+      if (modelInput) modelInput.required = true;
+    } else {
+      if (baseField) baseField.hidden = true;
+      if (modelField) modelField.hidden = true;
+      if (baseInput) { baseInput.required = false; baseInput.value = ''; }
+      if (modelInput) { modelInput.required = false; modelInput.value = ''; }
+    }
+  }
+  const providerSel = $('provider-select');
+  if (providerSel) providerSel.addEventListener('change', refreshProviderFields);
+
   // Load config + token info on page load.
   Promise.all([
     fetch('/api/config').then((r) => r.json()).catch(() => ({})),
@@ -133,6 +172,12 @@
       apiKey: form.apiKey.value,
       email: form.email.value || undefined,
     };
+    if (form.customBaseUrl && form.customBaseUrl.value) {
+      values.customBaseUrl = form.customBaseUrl.value;
+    }
+    if (form.customModelId && form.customModelId.value) {
+      values.customModelId = form.customModelId.value;
+    }
     lastFormValues = values;
 
     try {
@@ -175,7 +220,10 @@
       f.provider.value = lastFormValues.provider || '';
       f.apiKey.value = '';
       f.email.value = lastFormValues.email || '';
+      if (f.customBaseUrl) f.customBaseUrl.value = lastFormValues.customBaseUrl || '';
+      if (f.customModelId) f.customModelId.value = lastFormValues.customModelId || '';
     }
+    refreshProviderFields();
     showForm();
   });
 

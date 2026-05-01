@@ -24,7 +24,14 @@ GATEWAY_USER=""
 SSH_PASSWORD=""
 PROVIDER=""
 API_KEY=""
+CUSTOM_BASE_URL=""
+CUSTOM_MODEL_ID=""
 ASSUME_YES=false
+
+# Built-in presets for OpenAI-compatible custom providers.
+# Mapped onto openclaw's --auth-choice custom-api-key + --custom-base-url + --custom-model-id.
+NVIDIA_BASE_URL="https://integrate.api.nvidia.com/v1"
+NVIDIA_DEFAULT_MODEL="moonshotai/kimi-k2-instruct"
 
 # ─── Colors ────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -46,13 +53,19 @@ usage() {
 Usage: sudo bash install-openclaw.sh [options]
 
 Options:
-  --domain <name>      Domain for this instance (e.g. customer-01.example.com)
-  --user <name>        Gateway/SSH user (default: testuser)
-  --password <pw>      SSH password (default: random)
-  --provider <name>    AI provider: anthropic | openai | gemini | openrouter | deepseek
-  --api-key <key>      AI provider API key (used with --provider)
-  --yes                Skip all confirm prompts
-  -h, --help           Show this help
+  --domain <name>           Domain for this instance (e.g. customer-01.example.com)
+  --user <name>             Gateway/SSH user (default: testuser)
+  --password <pw>           SSH password (default: random)
+  --provider <name>         AI provider:
+                              anthropic | openai | gemini | openrouter | deepseek
+                              nvidia   (NVIDIA Build — OpenAI-compatible, presets baked in)
+                              custom   (any OpenAI-compatible endpoint)
+  --api-key <key>           AI provider API key (used with --provider)
+  --custom-base-url <url>   Required if --provider=custom; optional override for nvidia
+  --custom-model-id <id>    Model id (default for nvidia: moonshotai/kimi-k2-instruct;
+                            required for --provider=custom)
+  --yes                     Skip all confirm prompts
+  -h, --help                Show this help
 
 If --provider and --api-key are both given, the AI provider is configured
 during install — the customer just clicks the URL, no SSH needed.
@@ -65,14 +78,16 @@ EOF
 # ─── Args ──────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --domain)   DOMAIN="$2"; shift 2 ;;
-    --user)     GATEWAY_USER="$2"; shift 2 ;;
-    --password) SSH_PASSWORD="$2"; shift 2 ;;
-    --provider) PROVIDER="$2"; shift 2 ;;
-    --api-key)  API_KEY="$2"; shift 2 ;;
-    --yes|-y)   ASSUME_YES=true; shift ;;
-    -h|--help)  usage; exit 0 ;;
-    *)          err "Unknown option: $1"; usage; exit 1 ;;
+    --domain)           DOMAIN="$2"; shift 2 ;;
+    --user)             GATEWAY_USER="$2"; shift 2 ;;
+    --password)         SSH_PASSWORD="$2"; shift 2 ;;
+    --provider)         PROVIDER="$2"; shift 2 ;;
+    --api-key)          API_KEY="$2"; shift 2 ;;
+    --custom-base-url)  CUSTOM_BASE_URL="$2"; shift 2 ;;
+    --custom-model-id)  CUSTOM_MODEL_ID="$2"; shift 2 ;;
+    --yes|-y)           ASSUME_YES=true; shift ;;
+    -h|--help)          usage; exit 0 ;;
+    *)                  err "Unknown option: $1"; usage; exit 1 ;;
   esac
 done
 
@@ -82,10 +97,21 @@ if [[ -n "$PROVIDER" && -z "$API_KEY" ]] || [[ -z "$PROVIDER" && -n "$API_KEY" ]
   usage; exit 1
 fi
 case "${PROVIDER,,}" in
-  ""|anthropic|openai|gemini|openrouter|deepseek) ;;
-  *) err "Unknown --provider '$PROVIDER' (must be: anthropic | openai | gemini | openrouter | deepseek)"; exit 1 ;;
+  ""|anthropic|openai|gemini|openrouter|deepseek|nvidia|custom) ;;
+  *) err "Unknown --provider '$PROVIDER' (must be one of: anthropic, openai, gemini, openrouter, deepseek, nvidia, custom)"; exit 1 ;;
 esac
 PROVIDER="${PROVIDER,,}"
+
+# nvidia: backfill defaults
+if [[ "$PROVIDER" == "nvidia" ]]; then
+  CUSTOM_BASE_URL="${CUSTOM_BASE_URL:-$NVIDIA_BASE_URL}"
+  CUSTOM_MODEL_ID="${CUSTOM_MODEL_ID:-$NVIDIA_DEFAULT_MODEL}"
+fi
+# custom: both base URL and model id are required
+if [[ "$PROVIDER" == "custom" ]]; then
+  [[ -z "$CUSTOM_BASE_URL" ]] && { err "--custom-base-url is required when --provider=custom"; exit 1; }
+  [[ -z "$CUSTOM_MODEL_ID" ]] && { err "--custom-model-id is required when --provider=custom"; exit 1; }
+fi
 
 # ─── Banner ────────────────────────────────────────────────────────
 cat <<'BANNER'
@@ -412,12 +438,17 @@ echo
 
 echo "Choose your AI provider:"
 echo "  1) Anthropic   (Claude — recommended for code / agentic work)"
-echo "  2) OpenAI      (GPT-5.5)"
+echo "  2) OpenAI      (GPT)"
 echo "  3) Google      (Gemini)"
 echo "  4) OpenRouter  (multi-provider gateway)"
 echo "  5) DeepSeek"
+echo "  6) NVIDIA      (NVIDIA Build — Kimi K2, Llama, DeepSeek-V3, …)"
+echo "  7) Custom      (any OpenAI-compatible endpoint — Together, Groq, Ollama, …)"
 echo
-read -rp "Enter choice [1-5]: " choice
+read -rp "Enter choice [1-7]: " choice
+
+CUSTOM_BASE_URL=""
+CUSTOM_MODEL_ID=""
 
 case "$choice" in
   1) PROVIDER="Anthropic";  AUTH_CHOICE="anthropic-api-key";  KEY_FLAG="--anthropic-api-key";  KEY_URL="https://console.anthropic.com/settings/keys" ;;
@@ -425,13 +456,35 @@ case "$choice" in
   3) PROVIDER="Gemini";     AUTH_CHOICE="gemini-api-key";     KEY_FLAG="--gemini-api-key";     KEY_URL="https://aistudio.google.com/apikey" ;;
   4) PROVIDER="OpenRouter"; AUTH_CHOICE="openrouter-api-key"; KEY_FLAG="--openrouter-api-key"; KEY_URL="https://openrouter.ai/keys" ;;
   5) PROVIDER="DeepSeek";   AUTH_CHOICE="deepseek-api-key";   KEY_FLAG="--deepseek-api-key";   KEY_URL="https://platform.deepseek.com/api_keys" ;;
+  6) PROVIDER="NVIDIA Build"
+     AUTH_CHOICE="custom-api-key"
+     KEY_FLAG="--custom-api-key"
+     KEY_URL="https://build.nvidia.com/ — sign in, copy nvapi-… key"
+     CUSTOM_BASE_URL="https://integrate.api.nvidia.com/v1"
+     CUSTOM_MODEL_ID="moonshotai/kimi-k2-instruct"
+     ;;
+  7) PROVIDER="Custom (OpenAI-compatible)"
+     AUTH_CHOICE="custom-api-key"
+     KEY_FLAG="--custom-api-key"
+     KEY_URL="<your provider's docs>"
+     read -rp "Base URL (e.g. https://api.together.xyz/v1): " CUSTOM_BASE_URL
+     read -rp "Model id (e.g. meta-llama/Llama-3.3-70B-Instruct-Turbo): " CUSTOM_MODEL_ID
+     [[ -z "$CUSTOM_BASE_URL" || -z "$CUSTOM_MODEL_ID" ]] && { err "Base URL and Model id are required"; exit 1; }
+     ;;
   *) err "Invalid choice"; exit 1 ;;
 esac
 
 echo
 info "Provider: ${PROVIDER}"
 info "Get an API key at: ${KEY_URL}"
+[[ -n "$CUSTOM_BASE_URL" ]] && info "Base URL : ${CUSTOM_BASE_URL}"
+[[ -n "$CUSTOM_MODEL_ID" ]] && info "Model    : ${CUSTOM_MODEL_ID}"
 echo
+
+if [[ "$choice" == "6" ]]; then
+  read -rp "Override default model? [enter to keep ${CUSTOM_MODEL_ID}]: " override
+  [[ -n "$override" ]] && CUSTOM_MODEL_ID="$override"
+fi
 
 read -rsp "Paste your API key (input hidden, press Enter when done): " API_KEY
 echo
@@ -466,6 +519,9 @@ args=(
 )
 if [[ -n "$GW_TOKEN" && "$GW_AUTH" == "token" ]]; then
   args+=( --gateway-token "$GW_TOKEN" )
+fi
+if [[ "$AUTH_CHOICE" == "custom-api-key" ]]; then
+  args+=( --custom-base-url "$CUSTOM_BASE_URL" --custom-model-id "$CUSTOM_MODEL_ID" --custom-compatibility openai )
 fi
 
 info "Applying configuration..."
@@ -517,11 +573,12 @@ if [[ -n "$PROVIDER" && -n "$API_KEY" ]]; then
   step "[10] Configuring AI provider ($PROVIDER)"
 
   case "$PROVIDER" in
-    anthropic)  AUTH_CHOICE="anthropic-api-key";  KEY_FLAG="--anthropic-api-key" ;;
-    openai)     AUTH_CHOICE="openai-api-key";     KEY_FLAG="--openai-api-key" ;;
-    gemini)     AUTH_CHOICE="gemini-api-key";     KEY_FLAG="--gemini-api-key" ;;
-    openrouter) AUTH_CHOICE="openrouter-api-key"; KEY_FLAG="--openrouter-api-key" ;;
-    deepseek)   AUTH_CHOICE="deepseek-api-key";   KEY_FLAG="--deepseek-api-key" ;;
+    anthropic)        AUTH_CHOICE="anthropic-api-key";  KEY_FLAG="--anthropic-api-key" ;;
+    openai)           AUTH_CHOICE="openai-api-key";     KEY_FLAG="--openai-api-key" ;;
+    gemini)           AUTH_CHOICE="gemini-api-key";     KEY_FLAG="--gemini-api-key" ;;
+    openrouter)       AUTH_CHOICE="openrouter-api-key"; KEY_FLAG="--openrouter-api-key" ;;
+    deepseek)         AUTH_CHOICE="deepseek-api-key";   KEY_FLAG="--deepseek-api-key" ;;
+    nvidia|custom)    AUTH_CHOICE="custom-api-key";     KEY_FLAG="--custom-api-key" ;;
   esac
 
   # snapshot protected fields before re-running onboard
@@ -537,10 +594,15 @@ print(json.dumps({
 PY
 )
 
+  EXTRA_FLAGS=""
+  if [[ "$AUTH_CHOICE" == "custom-api-key" ]]; then
+    EXTRA_FLAGS="--custom-base-url '$CUSTOM_BASE_URL' --custom-model-id '$CUSTOM_MODEL_ID' --custom-compatibility openai"
+  fi
+
   set +e
   sudo -u "$GATEWAY_USER" -i bash <<EOF >/tmp/install-provider.log 2>&1
 openclaw onboard --non-interactive --accept-risk --flow quickstart \
-  --auth-choice "$AUTH_CHOICE" "$KEY_FLAG" '$API_KEY' \
+  --auth-choice "$AUTH_CHOICE" "$KEY_FLAG" '$API_KEY' $EXTRA_FLAGS \
   --gateway-port 18789 --gateway-bind loopback \
   --gateway-auth token --gateway-token "$GATEWAY_TOKEN" --skip-health
 EOF

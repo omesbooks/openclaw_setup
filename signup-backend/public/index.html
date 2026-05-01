@@ -22,19 +22,33 @@
         <form id="signup-form" autocomplete="off">
           <label class="field">
             <span>AI provider</span>
-            <select name="provider" required>
+            <select name="provider" id="provider-select" required>
               <option value="">Choose…</option>
               <option value="anthropic">Anthropic (Claude)</option>
               <option value="openai">OpenAI (GPT)</option>
               <option value="gemini">Google (Gemini)</option>
               <option value="openrouter">OpenRouter</option>
               <option value="deepseek">DeepSeek</option>
+              <option value="nvidia">NVIDIA Build (Kimi K2, Llama, …)</option>
+              <option value="custom">Custom (OpenAI-compatible URL)</option>
             </select>
+          </label>
+
+          <label class="field" id="field-custom-base-url" hidden>
+            <span>Base URL</span>
+            <input type="url" name="customBaseUrl" placeholder="https://api.example.com/v1" />
+            <small id="hint-base-url">Required for Custom · auto-filled for NVIDIA.</small>
+          </label>
+
+          <label class="field" id="field-custom-model-id" hidden>
+            <span>Model ID</span>
+            <input type="text" name="customModelId" placeholder="vendor/model-name" />
+            <small id="hint-model-id">Required for Custom · default for NVIDIA: <code>moonshotai/kimi-k2-instruct</code></small>
           </label>
 
           <label class="field">
             <span>API key</span>
-            <input type="password" name="apiKey" required placeholder="sk-…" />
+            <input type="password" name="apiKey" required placeholder="sk-… or nvapi-…" />
             <small>Get this from your AI provider's dashboard.</small>
           </label>
 

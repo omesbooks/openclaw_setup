@@ -48,7 +48,7 @@ function detectStep(line) {
   return null;
 }
 
-async function runInstallScript({ host, user, domain, provider, apiKey, log, onProgress }) {
+async function runInstallScript({ host, user, domain, provider, apiKey, customBaseUrl, customModelId, log, onProgress }) {
   if (!fs.existsSync(SSH_KEY_PATH)) {
     throw new Error(
       `SSH private key not found at ${SSH_KEY_PATH}. Generate it with ssh-keygen.`
@@ -67,15 +67,22 @@ async function runInstallScript({ host, user, domain, provider, apiKey, log, onP
 
   // Bootstrap curl if the customer container is too minimal to have it.
   // (Common on slim Ubuntu LXC templates.) Runs as root via the SSH session.
-  const fetchCmd = [
+  const fetchCmdParts = [
     'curl -fsSL',
     shellEscapeSingleQuoted(INSTALL_SCRIPT_URL),
     '| bash -s --',
     '--domain', shellEscapeSingleQuoted(domain),
     '--provider', shellEscapeSingleQuoted(provider),
     '--api-key', shellEscapeSingleQuoted(apiKey),
-    '--yes',
-  ].join(' ');
+  ];
+  if (customBaseUrl) {
+    fetchCmdParts.push('--custom-base-url', shellEscapeSingleQuoted(customBaseUrl));
+  }
+  if (customModelId) {
+    fetchCmdParts.push('--custom-model-id', shellEscapeSingleQuoted(customModelId));
+  }
+  fetchCmdParts.push('--yes');
+  const fetchCmd = fetchCmdParts.join(' ');
 
   const cmd = `set -e
 if ! command -v curl >/dev/null 2>&1; then

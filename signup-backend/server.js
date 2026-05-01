@@ -49,7 +49,12 @@ const VALID_PROVIDERS = [
   'gemini',
   'openrouter',
   'deepseek',
+  'nvidia',  // OpenAI-compatible preset (NVIDIA Build)
+  'custom',  // any OpenAI-compatible endpoint, requires customBaseUrl + customModelId
 ];
+
+const NVIDIA_BASE_URL = 'https://integrate.api.nvidia.com/v1';
+const NVIDIA_DEFAULT_MODEL = 'moonshotai/kimi-k2-instruct';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -213,6 +218,7 @@ app.get('/api/status', statusLimiter, (req, res) => {
 //   provisioning → 409  (already in flight)
 app.post('/api/provision', provisionLimiter, async (req, res) => {
   const { token, provider, apiKey, email, captchaToken } = req.body || {};
+  let { customBaseUrl, customModelId } = req.body || {};
 
   if (!token || !provider || !apiKey) {
     return res.status(400).json({ error: 'token, provider, apiKey are required' });
@@ -222,6 +228,25 @@ app.post('/api/provision', provisionLimiter, async (req, res) => {
   }
   if (typeof apiKey !== 'string' || apiKey.length < 10 || apiKey.length > 500) {
     return res.status(400).json({ error: 'invalid apiKey' });
+  }
+
+  // NVIDIA: backfill defaults so the customer can omit base URL / model.
+  if (provider === 'nvidia') {
+    customBaseUrl = customBaseUrl || NVIDIA_BASE_URL;
+    customModelId = customModelId || NVIDIA_DEFAULT_MODEL;
+  }
+  // Custom: require both base URL + model id.
+  if (provider === 'custom') {
+    if (!customBaseUrl || !customModelId) {
+      return res.status(400).json({ error: 'customBaseUrl and customModelId are required for custom provider' });
+    }
+  }
+  // Sanity-check URL + model values (length + simple charset).
+  if (customBaseUrl && (customBaseUrl.length > 500 || !/^https?:\/\//i.test(customBaseUrl))) {
+    return res.status(400).json({ error: 'invalid customBaseUrl' });
+  }
+  if (customModelId && (customModelId.length > 200 || !/^[a-zA-Z0-9._\-/:]+$/.test(customModelId))) {
+    return res.status(400).json({ error: 'invalid customModelId' });
   }
 
   // reCAPTCHA gate (only if configured server-side).
@@ -270,6 +295,8 @@ app.post('/api/provision', provisionLimiter, async (req, res) => {
         domain: record.domain,
         provider,
         apiKey,
+        customBaseUrl,
+        customModelId,
         log: (kind, text) =>
           process.stdout.write(`${tag} ${kind === 'stderr' ? '!' : '·'} ${text}`),
         onProgress: ({ stepsReached, currentStep }) => {
